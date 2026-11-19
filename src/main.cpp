@@ -3,7 +3,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-// ================= PINOUT DEFINITIONS (ESP32-S3) =================
+// ================== Pinout ==================
 const int sensorInput[] = {1, 2, 3, 4};
 const int sensorCount = 4;
 const int threshold = 3600;
@@ -16,7 +16,7 @@ LiquidCrystal_I2C lcd(LCD_I2C_ADDR, 16, 2);
 #define LED_PIN         14
 const int ledCount = 23;
 Adafruit_NeoPixel WS2812B(ledCount, LED_PIN, NEO_GRB + NEO_KHZ800);
-const int plotLocation[] = {15, 12, 9, 6};
+const int plotLocation[] = {15, 12, 6, 3};
 
 #define SERVO_ENTRY_PIN 15
 #define SERVO_EXIT_PIN  16
@@ -24,12 +24,12 @@ Servo servo01;
 Servo servo02;
 
 #define BTN_ENTRY_PIN   21
-#define BTN_EXIT_PIN    47
+#define BTN_EXIT_PIN    13
 
 #define Print Serial.print
 #define Println Serial.println
 
-// ================= TIME MANAGEMENT & STATE =================
+// Time
 bool isLedGuiding = false;
 unsigned long lastLedUpdate = 0;
 int currentLedPixel = 0;
@@ -61,55 +61,52 @@ const unsigned long LCD_MSG_DURATION = 3000;
 bool lastEntryBtnState = HIGH;
 bool lastExitBtnState = HIGH;
 
-// Biến quản lý định kỳ kiểm tra sức khỏe thiết bị
+
 bool isLcdHealthy = false;
 unsigned long lastHealthCheckTime = 0;
-const unsigned long HEALTH_CHECK_INTERVAL = 3000; // Kiểm tra bus I2C mỗi 3 giây
+const unsigned long HEALTH_CHECK_INTERVAL = 3000;
 
-// ================= RE-INIT & HEALTH CHECK FUNCTIONS =================
+// ================== Connection fixing functions ==================
 
-// 1. Kiểm tra và tái khởi tạo bus I2C & LCD nếu mất kết nối
+// 1. I2C - LCD innit
 bool checkAndReinitLCD() {
   Wire.beginTransmission(LCD_I2C_ADDR);
   byte error = Wire.endTransmission();
 
   if (error != 0) {
-    // 0: Thành công, các mã khác: NACK hoặc lỗi bus
-    Println("[WARN] LCD / I2C Bus bi mat ket noi hoac phan hoi loi. Dang thu re-init...");
+    Println("[WARN] ICD/I2C not responding. reiniting...");
     isLcdHealthy = false;
     
-    // Reset phần cứng bus I2C trên ESP32
     Wire.end();
     delay(20);
     Wire.begin(I2C_SDA, I2C_SCL);
     
-    // Thử kết nối lại lần nữa
+    // retry
     Wire.beginTransmission(LCD_I2C_ADDR);
     if (Wire.endTransmission() == 0) {
       lcd.init();
       lcd.backlight();
-      lastAvailableSlots = -1; // Buộc màn hình vẽ lại ngay lập tức
+      lastAvailableSlots = -1; 
       isLcdHealthy = true;
-      Println("[OK] LCD da duoc khoi phuc thanh cong!");
+      Println("[OK] LCD connected!");
       return true;
     }
     return false;
   }
   
   if (!isLcdHealthy) {
-    // Trường hợp trước đó lỗi nhưng giờ thiết bị đã phản hồi
     lcd.init();
     lcd.backlight();
     lastAvailableSlots = -1;
     isLcdHealthy = true;
-    Println("[OK] LCD khoi dong lai sau su co!");
+    Println("[OK] LCD connected!");
   }
   return true;
 }
 
-// 2. Tái cấu hình lại Servo khi phát hiện trạng thái detach hoặc cần force reset
+// 2. servos
 void reinitServo(Servo &servo, int pin, int defaultAngle) {
-  Print("[INFO] Re-initializing Servo tai Pin ");
+  Print("[INFO] Reinitializing Servo at Pin:");
   Println(pin);
   
   if (servo.attached()) {
@@ -120,7 +117,7 @@ void reinitServo(Servo &servo, int pin, int defaultAngle) {
   servo.write(defaultAngle);
 }
 
-// 3. Khởi tạo lại toàn bộ Servo nếu timer hoặc GPIO bị treo
+// 3. All servos
 void reinitAllServos() {
   ESP32PWM::allocateTimer(0);
   ESP32PWM::allocateTimer(1);
@@ -130,16 +127,16 @@ void reinitAllServos() {
   isExitOpen = false;
 }
 
-// 4. Khởi tạo lại WS2812B LED (phòng trường hợp bộ đệm RMT/SPI bị treo)
+// 4. Led Strip
 void reinitLEDStrip() {
-  Println("[INFO] Re-initializing WS2812B Strip...");
+  Println("[INFO] Reinitializing WS2812B Strip...");
   WS2812B.begin();
   WS2812B.setBrightness(255);
   WS2812B.clear();
   WS2812B.show();
 }
 
-// ================= LOGIC ĐIỀU KHIỂN =================
+// ================== Logic ==================
 
 void initGPIO() {
   for (int i = 0; i < sensorCount; i++) {
@@ -216,7 +213,7 @@ int getAvailableSlots() {
 }
 
 void updateLCDDisplay() {
-  if (!isLcdHealthy) return; // Bỏ qua nếu màn hình đang ngắt kết nối để tránh lag bus
+  if (!isLcdHealthy) return;  
 
   if (!isShowingMessage) {
     int currentSlots = getAvailableSlots();
@@ -239,7 +236,7 @@ void updateLCDDisplay() {
   }
 }
 
-// ================= SETUP & LOOP =================
+// ================== Main program ==================
 void setup() {
   Serial.begin(115200);
 
@@ -256,22 +253,22 @@ void setup() {
 }
 
 void loop() {
-  // 1. ĐỊNH KỲ KIỂM TRA SỨC KHỎE LINH KIỆN (NON-BLOCKING)
+  // 1. Check health status
   if (millis() - lastHealthCheckTime >= HEALTH_CHECK_INTERVAL) {
     lastHealthCheckTime = millis();
     checkAndReinitLCD();
     
-    // Kiểm tra trạng thái attach của servo đề phòng rớt PWM
+    // Check servo
     if (!servo01.attached()) reinitServo(servo01, SERVO_ENTRY_PIN, 0);
     if (!servo02.attached()) reinitServo(servo02, SERVO_EXIT_PIN, 0);
   }
 
-  // 2. CẬP NHẬT HIỆU ỨNG VÀ MÀN HÌNH
+  // 2. UI Update
   updateLedAnimation();
   updateFullWarning();
   updateLCDDisplay();
 
-  // 3. TỰ ĐỘNG ĐÓNG CỔNG
+  // 3. Close gate
   if (isEntryOpen && (millis() - entryOpenedTime >= ENTRY_DELAY)) {
     servo01.write(0);
     isEntryOpen = false;
@@ -284,7 +281,7 @@ void loop() {
     Println("-> EXIT gate closed.");
   }
 
-  // 4. NÚT NHẤN CỔNG VÀO
+  // 4. Entrance button 
   bool currentEntryBtnState = digitalRead(BTN_ENTRY_PIN);
   if (lastEntryBtnState == HIGH && currentEntryBtnState == LOW) {
     if (!isEntryOpen) {
@@ -330,7 +327,7 @@ void loop() {
   }
   lastEntryBtnState = currentEntryBtnState;
 
-  // 5. NÚT NHẤN CỔNG RA
+  // 5. exit button 
   bool currentExitBtnState = digitalRead(BTN_EXIT_PIN);
   if (lastExitBtnState == HIGH && currentExitBtnState == LOW) {
     if (!isExitOpen) {
